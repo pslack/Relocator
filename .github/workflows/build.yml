@@ -1,0 +1,69 @@
+name: Build and Package Relocator
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ======================================================
+      # macOS Specific Setup
+      # ======================================================
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          # Add any brew commands here if your tool develops new dependencies
+          echo "No macOS dependencies needed for relocator tool itself."
+
+      # ======================================================
+      # Linux Specific Setup
+      # ======================================================
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          # Add any apt-get commands here if your tool develops new dependencies
+          sudo apt-get update
+          sudo apt-get install -y patchelf
+
+      # ======================================================
+      # Windows Specific Setup
+      # ======================================================
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        run: |
+          # Add any choco or vcpkg commands here if your tool develops new dependencies
+          echo "No Windows dependencies needed for relocator tool itself."
+
+      # ======================================================
+      # Configure, Build, and Package
+      # ======================================================
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build Project
+        run: cmake --build build --config Release
+
+      - name: Run CPack
+        working-directory: ./build
+        run: cpack -C Release
+
+      # ======================================================
+      # Upload Artifacts
+      # ======================================================
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: relocator-${{ matrix.os }}
+          path: build/*.{deb,pkg,exe,zip}
