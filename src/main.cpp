@@ -15,15 +15,22 @@ int main(int argc, char* argv[]) {
 
     std::filesystem::path inputFile;
     app.add_option("-i,--input", inputFile, "The main library or executable to fix up")
-            ->required()
-            ->check(CLI::ExistingFile);
+       ->required()
+       ->check(CLI::ExistingFile);
 
     std::filesystem::path outputDir;
     app.add_option("-o,--output", outputDir, "The directory to copy dependencies into (e.g., YourApp.app/Contents/Frameworks)")
-            ->required();
+       ->required();
 
     std::vector<std::string> searchPaths;
     app.add_option("-s,--search", searchPaths, "Additional directories to search for libraries");
+
+    std::vector<std::string> literalExclusions;
+    app.add_option("-e,--exclude", literalExclusions, "Literal library filenames to exclude (can be used multiple times)");
+
+    // NEW: Add an option for regex-based exclusions
+    std::vector<std::string> regexExclusions;
+    app.add_option("-r,--regex-exclude", regexExclusions, "Regex patterns to exclude library filenames (e.g., \"libX.*\\.dylib\")");
 
     bool dryRun = false;
     app.add_flag("-d,--dry-run", dryRun, "Print commands without executing them");
@@ -35,8 +42,8 @@ int main(int argc, char* argv[]) {
         // Use a factory to get the correct relocator for the current OS
         std::unique_ptr<Relocator> relocator = createPlatformRelocator(dryRun);
 
-        // Run the relocation process
-        relocator->bundleDependencies(inputFile, outputDir, searchPaths);
+        // Run the relocation process, passing both exclusion lists
+        relocator->bundleDependencies(inputFile, outputDir, searchPaths, literalExclusions, regexExclusions);
 
     } catch (const std::exception& e) {
         std::cerr << "An error occurred: " << e.what() << std::endl;

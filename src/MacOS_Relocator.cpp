@@ -5,8 +5,10 @@
 #include <sstream>
 #include <set>
 #include <map>
-#include <dlfcn.h>   // For dlopen, dlclose, dlerror
-#include <cstdlib>   // For setenv, unsetenv
+#include <regex> // For regex matching
+#include <dlfcn.h>
+#include <cstdlib>
+#include <algorithm>
 
 // Helper function to trim strings
 static std::string trim(const std::string& s) {
@@ -19,22 +21,25 @@ static std::string trim(const std::string& s) {
 }
 
 void MacOS_Relocator::bundleDependencies(
-        const std::filesystem::path& inputFile,
-        const std::filesystem::path& outputDir,
-        const std::vector<std::string>& searchPaths) {
+    const std::filesystem::path& inputFile,
+    const std::filesystem::path& outputDir,
+    const std::vector<std::string>& searchPaths,
+    const std::vector<std::string>& literalExclusions,
+    const std::vector<std::string>& regexExclusions) {
 
     std::cout << "\n=== Starting macOS Relocation ===\n";
 
-    // This set will store the unique, real paths to all libraries that need to be bundled.
     std::set<std::filesystem::path> filesToBundle;
     std::vector<std::filesystem::path> filesToProcess = { std::filesystem::canonical(inputFile) };
+
+    // Create a set from the literal exclusions for fast lookups
+    const std::set<std::string> exclusionSet(literalExclusions.begin(), literalExclusions.end());
 
     std::cout << "Phase 1: Discovering all dependencies..." << std::endl;
     while (!filesToProcess.empty()) {
         std::filesystem::path currentFile = filesToProcess.back();
         filesToProcess.pop_back();
 
-        // If we've already seen this canonical file, skip it.
         if (filesToBundle.count(currentFile)) {
             continue;
         }
@@ -42,7 +47,6 @@ void MacOS_Relocator::bundleDependencies(
         std::cout << "  Processing: " << currentFile << std::endl;
         filesToBundle.insert(currentFile);
 
-        // Get dependencies of the current file with otool
         std::string otoolCmd = "otool -L \"" + currentFile.string() + "\"";
         CommandResult result = Process::exec(otoolCmd);
         if (result.exitStatus != 0) {
@@ -51,33 +55,50 @@ void MacOS_Relocator::bundleDependencies(
 
         std::istringstream stream(result.output);
         std::string line;
-        std::getline(stream, line); // Skip the first line (the file itself)
+        std::getline(stream, line);
 
         while (std::getline(stream, line)) {
             std::string depPathStr = trim(line);
-            depPathStr = depPathStr.substr(0, depPathStr.find(" (")); // Trim compatibility info
+            depPathStr = depPathStr.substr(0, depPathStr.find(" ("));
 
-            // Ignore system libraries
             if (depPathStr.rfind("/usr/lib/", 0) == 0 || depPathStr.rfind("/System/Library/", 0) == 0) {
                 continue;
             }
 
-            // TODO: Add logic here to resolve @rpath using the searchPaths vector
             std::filesystem::path depPath(depPathStr);
-            if (depPathStr.rfind("@rpath", 0) == 0) {
-                std::cerr << "  Warning: @rpath dependency found. Resolution not yet implemented: " << depPathStr << std::endl;
+            std::string filename = depPath.filename().string();
+
+            // Check literal exclusion list
+            if (exclusionSet.count(filename)) {
+                std::cout << "    --> Ignoring user-excluded library: " << filename << std::endl;
                 continue;
             }
 
+            // NEW: Check regex exclusion list
+            bool excludedByRegex = false;
+            for (const auto& pattern : regexExclusions) {
+                if (std::regex_match(filename, std::regex(pattern))) {
+                    excludedByRegex = true;
+                    std::cout << "    --> Ignoring user-excluded regex pattern '" << pattern << "': " << filename << std::endl;
+                    break;
+                }
+            }
+            if (excludedByRegex) {
+                continue;
+            }
+
+            if (depPathStr.rfind("@rpath", 0) == 0) {
+                 std::cerr << "  Warning: @rpath dependency found. Resolution not yet implemented: " << depPathStr << std::endl;
+                 continue;
+            }
+
             if (std::filesystem::exists(depPath)) {
-                // IMPORTANT: Resolve the dependency to its canonical path to handle symlinks
                 filesToProcess.push_back(std::filesystem::canonical(depPath));
             } else {
                 std::cerr << "  Warning: Could not find dependency: " << depPathStr << std::endl;
             }
         }
     }
-
     std::cout << "\n--- Dependency Analysis Complete ---" << std::endl;
     std::cout << "Found " << filesToBundle.size() << " total files to process.\n\n";
 

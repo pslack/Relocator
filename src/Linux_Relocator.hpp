@@ -8,9 +8,11 @@ class Linux_Relocator : public Relocator {
 public:
     using Relocator::Relocator;
     void bundleDependencies(
-            const std::filesystem::path& inputFile,
-            const std::filesystem::path& outputDir,
-            const std::vector<std::string>& searchPaths
+        const std::filesystem::path& inputFile,
+        const std::filesystem::path& outputDir,
+        const std::vector<std::string>& searchPaths,
+        const std::vector<std::string>& literalExclusions,
+        const std::vector<std::string>& regexExclusions
     ) override;
 };
 
